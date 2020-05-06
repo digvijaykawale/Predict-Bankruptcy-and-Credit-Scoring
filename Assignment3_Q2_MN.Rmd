@@ -1,0 +1,428 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+2.	Use German Credit Scoring data. (NOT the data we used for lecture notes.)
+
+The German credit score data are downloadable from http://archive.ics.uci.edu/ml/datasets/Statlog+(German+Credit+Data)
+
+(i)	Random sample a training data set that contains 70% of original data points. Start with exploratory data analysis. Find a best model for Credit Scoring data using logistic regression with AIC and BIC. Draw ROC curve, report the AUC, and present the misclassification rate table of your final model. 
+
+(ii)	Test the out-of-sample performance. Using final logistic linear model built from (i) on the 70% of original data, test with the remaining 30% testing data.  (Try predict() function in R.) Report out-of-sample AUC and asymmetric misclassification rate. 
+Write a brief report up to 8 pages including all plots and tables and interpret your results.  
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ROCR)
+```
+
+```{r}
+german_credit = read.table("http://archive.ics.uci.edu/ml/machine-learning-databases/statlog/german/german.data")
+
+colnames(german_credit)=c("chk_acct",
+                        "duration",
+                        "credit_his",
+                        "purpose",
+                        "amount",
+                        "saving_acct",
+                        "present_emp",
+                        "installment_rate",
+                        "sex",
+                        "other_debtor",
+                        "present_resid",
+                        "property",
+                        "age",
+                        "other_install",
+                        "housing",
+                        "n_credits",
+                        "job",
+                        "n_people",
+                        "telephone",
+                        "foreign",
+                        "response")
+
+
+#orginal response coding 1= good, 2 = bad
+#we need 0 = good, 1 = bad
+german_credit$response = german_credit$response - 1
+```
+
+```{r}
+glimpse(german_credit)
+```
+
+
+**Basic EDA**
+
+**Summary statistics**
+```{r}
+summary(german_credit)
+```
+
+**Univariate Analysis**
+```{r}
+#Function to plot histogram
+plot_bar_dodge <- function(x)
+{
+  ggplot(german_credit, aes(x=x, fill=as.factor(response))) +
+  geom_bar( position = 'dodge') +
+  xlab(names(x))
+}
+```
+
+```{r}
+plot_hist_dodge <- function(x)
+{
+  ggplot(german_credit, aes(x=x, fill=as.factor(response))) +
+  geom_histogram( position = 'dodge') +
+  xlab(names(x))
+}
+
+```
+
+```{r}
+plot_hist_density <- function(x)
+{
+  ggplot(german_credit, aes(x = x, fill = as.factor(response))) + 
+    geom_density(alpha=.3)
+}
+```
+
+```{r}
+##Function to plot box plot
+plot_box <- function(x)
+{
+  ggplot(german_credit, aes(x = as.factor(response), y = x, fill = as.factor(response))) +
+    geom_boxplot()
+}
+```
+
+**Categorical Variables**
+```{r}
+cat_var <- c("chk_acct",
+             "credit_his",
+             "purpose",
+             "saving_acct",
+             "present_emp",
+             "sex",
+             "other_debtor",
+             "property",
+             "other_install",
+             "housing",
+             "job",
+             "telephone",
+             "foreign")
+```
+
+
+Proportion table/Contingency table -- To fix
+```{r}
+prop_split <- function(x)
+{
+  with(german_credit, table(response, x)) %>% prop.table()
+}
+```
+
+```{r}
+for(i in cat_var)
+{
+  print(prop_split(german_credit[,i]))
+}
+```
+
+
+Histograms for categorical variables
+```{r}
+for(i in cat_var)
+{
+  print(plot_bar_dodge(german_credit[,i]))
+}
+```
+
+
+**Numerical variables**
+
+1. duration
+2. amount
+3. installment.rate
+4. present_resid
+5. age
+6. n_credits
+7. n_people
+
+Visualizing the distribution of these variables against the response variable
+
+
+**1. Duration**
+```{r}
+plot_hist_density(german_credit$duration)
+plot_box(german_credit$duration)
+```
+
+**2. Amount**
+```{r}
+plot_box(german_credit$amount)
+```
+
+**3. Installment Rate**
+```{r}
+plot_bar_dodge(german_credit$installment_rate)
+```
+
+**4. Residence Since**
+```{r}
+plot_bar_dodge(german_credit$present_resid)
+plot_box(german_credit$present_resid)
+
+```
+
+**5. Age**
+```{r}
+plot_box(german_credit$age)
+```
+
+**6. Credits**
+```{r}
+plot_box(german_credit$n_credits)
+```
+
+**7. n_people**
+```{r}
+plot_box(german_credit$n_people)
+plot_hist_dodge(german_credit$n_people)
+```
+
+
+
+```{r}
+set.seed(13437586)
+```
+
+**Train/Test split**
+Randomly split the data to training (70%) and testing (30%) datasets:
+
+```{r}
+index <- sample(nrow(german_credit),nrow(german_credit)*0.70)
+credit.train = german_credit[index,]
+credit.test = german_credit[-index,]
+```
+
+```{r}
+glimpse(credit.train)
+```
+
+**Find a best model for Credit Scoring data using logistic regression with AIC and BIC.**
+
+Training the model with all the predictor variables
+```{r}
+credit.glm0 <- glm(response~., family=binomial, data=credit.train)
+```
+
+Extracting certain criteria from the zero-model
+```{r}
+cat("Deviance = ",round(credit.glm0$deviance,2))
+cat("\nAIC = ",round(AIC(credit.glm0),2))
+cat("\nBIC = ",round(BIC(credit.glm0),2))
+```
+
+Variable selection with stepwise approach
+
+AIC based model
+```{r}
+credit.aic <- step(credit.glm0, trace = 0)
+summary(credit.aic)
+```
+
+glm(formula = response ~ chk_acct + duration + credit_his + purpose + 
+    amount + saving_acct + installment_rate + sex + other_debtor + 
+    other_install + housing + foreign, family = binomial, data = credit.train)
+
+Significant predictors -
+1. chk_acct
+2. duration
+3. credit_his
+4. purpose
+5. amount
+6. saving_acct
+7. installment_rate
+8. sex
+9. other_debtor
+10. other_install
+11. housing
+12. foreign
+
+```{r}
+cat("Deviance = ",round(credit.aic$deviance,2))
+cat("\nAIC = ",round(AIC(credit.aic),2))
+cat("\nBIC = ",round(BIC(credit.aic),2))
+
+```
+
+BIC based model
+```{r}
+credit.bic <- step(credit.glm0, trace = 0, k=log(nrow(credit.train)))
+summary(credit.bic)
+```
+
+glm(formula = response ~ chk_acct + duration + other_debtor + 
+    foreign, family = binomial, data = credit.train)
+
+Significant predictors are -
+1. chk_acct
+2. duration
+3. other_debtor
+3. foreign
+
+
+```{r}
+cat("Deviance = ",round(credit.bic$deviance,2))
+cat("\nAIC = ",round(AIC(credit.bic),2))
+cat("\nBIC = ",round(BIC(credit.bic),2))
+```
+
+Given the AIC of the model based on AIC stepwise approach is smaller. We will select the AIC based model
+
+Final model
+```{r}
+credit.model <- glm(formula = response ~ chk_acct + duration + credit_his + purpose + 
+    amount + saving_acct + installment_rate + sex + other_debtor + 
+    other_install + housing + foreign, family = binomial, data = credit.train)
+
+
+summary(credit.model)
+```
+
+```{r}
+cat("Deviance = ",round(credit.model$deviance,2))
+cat("\nAIC = ",round(AIC(credit.model),2))
+cat("\nBIC = ",round(BIC(credit.model),2))
+```
+
+
+**Draw ROC curve, report the AUC, and present the misclassification rate table of your final model.**
+
+```{r}
+pred.model.train<- predict(credit.model, type="response")
+```
+
+
+```{r}
+par(pty = "s")
+pROC::roc(credit.train$response, credit.model$fitted.values, legacy.axes=TRUE, 
+          xlab="False Positive Rate", ylab="True Postive Rate",plot=TRUE, col="#377eb8", lwd=4, print.auc = TRUE)
+
+```
+
+
+**Misclassification rate table**
+
+```{r}
+pred.model.train<- predict(credit.model, type="response")
+```
+
+**Naive Choice of Cut-off probability**
+```{r}
+pcut1<- mean(credit.train$response)
+
+# get binary prediction
+class.model.train<- (pred.model.train > pcut1)*1
+
+# get confusion matrix
+table(credit.train$response, class.model.train, dnn = c("True", "Predicted"))
+```
+
+
+**Determine Optimal cut-off Probability using Cost Function**
+```{r}
+costfunc = function(obs, pred.p, pcut){
+    weight1 = 5   # define the weight for "true=1 but pred=0" (FN)
+    weight0 = 1    # define the weight for "true=0 but pred=1" (FP)
+    c1 = (obs == 1)&(pred.p < pcut)    # count for "true=1 but pred=0"   (FN)
+    c0 = (obs == 0)&(pred.p >= pcut)   # count for "true=0 but pred=1"   (FP)
+    cost = mean(weight1*c1 + weight0*c0)  # misclassification with weight
+    return(cost) # you have to return to a value when you write R functions
+} # end of the function
+```
+
+
+```{r}
+p.seq = seq(0.01, 1, 0.01) 
+```
+
+
+```{r}
+cost = rep(0, length(p.seq))  
+for(i in 1:length(p.seq)){ 
+    cost[i] = costfunc(obs = credit.train$response, pred.p = pred.model.train, pcut = p.seq[i])  
+} # end of the loop
+```
+
+```{r}
+plot(p.seq, cost)
+```
+
+```{r}
+optimal.pcut = p.seq[which(cost==min(cost))]
+optimal.pcut
+```
+
+```{r}
+class.train.opt <- (pred.model.train > optimal.pcut)*1
+
+# step 2. get confusion matrix, MR, FPR, FNR
+table(credit.train$response, class.train.opt, dnn = c("True", "Predicted"))
+```
+```{r}
+MR<- mean(credit.train$response!= class.train.opt)
+FPR<- sum(credit.train$response==0 & class.train.opt==1)/sum(credit.train$response==0)
+FNR<- sum(credit.train$response==1 & class.train.opt==0)/sum(credit.train$response==1)
+cost<- costfunc(obs = credit.train$response, pred.p = pred.model.train, pcut = optimal.pcut) 
+```
+
+```{r}
+cat("Misclassification Rate = ", MR)
+cat("\nFalse Positive Rate = ", FPR)
+cat("\nFalse Negative Rate = ", FNR)
+cat("\nCost = ", cost)
+```
+
+**(ii)	Test the out-of-sample performance. Using final logistic linear model built from (i) on the 70% of original data, test with the remaining 30% testing data.**
+
+**Out of sample Prediction**
+```{r}
+pred.model.test <- predict(credit.model, newdata = credit.test, type = "response")
+```
+
+**ROC Curve and AUC**
+```{r}
+par(pty = "s")
+pROC::roc(credit.test$response, pred.model.test, legacy.axes=TRUE, 
+          xlab="False Positive Rate", ylab="True Postive Rate",plot=TRUE, col="#377eb8", lwd=4, print.auc = TRUE)
+```
+
+
+```{r}
+class.test <- (pred.model.test > optimal.pcut)*1
+
+# step 2. get confusion matrix, MR, FPR, FNR
+table(credit.test$response, class.test, dnn = c("True", "Predicted"))
+```
+
+```{r}
+MR <- mean(credit.test$response!= class.test)
+FPR <- sum(credit.test$response==0 & class.test==1)/sum(credit.test$response==0)
+FNR <- sum(credit.test$response==1 & class.test==0)/sum(credit.test$response==1)
+cost <- costfunc(obs = credit.test$response, pred.p = pred.model.test, pcut = optimal.pcut) 
+```
+
+```{r}
+cat("Misclassification Rate = ", MR)
+cat("\nFalse Positive Rate = ", FPR)
+cat("\nFalse Negative Rate = ", FNR)
+cat("\nCost = ", cost)
+```
+
